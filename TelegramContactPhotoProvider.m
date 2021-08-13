@@ -1,20 +1,20 @@
-#import "FolderFinder.h"
 #import "TelegramContactPhotoProvider.h"
 
 @interface NCNotificationRequest
--(NSString *)threadIdentifier;
+- (NSString *)threadIdentifier;
 @end
 
 @implementation TelegramContactPhotoProvider
 
 - (DDNotificationContactPhotoPromiseOffer *)contactPhotoPromiseOfferForNotification:(DDUserNotification *)notification {
-	NCNotificationRequest *request = [notification request];
-	NSString *threadIdentifier = [request threadIdentifier];
-	NSString *sharedFolder = [FolderFinder findSharedFolder:@"group.ph.telegra.Telegraph"];
-	NSLog(@"[TLGM] Starting Telegram Contact Photo search");
+	NSString *threadIdentifier = [[notification request] threadIdentifier];
+	NSString *sharedFolder = [TGSFolderFinder findSharedFolder:@"group.ph.telegra.Telegraph"];
+	NSLog(@"Starting Telegram Contact Photo search");
 
 	if ([[threadIdentifier lowercaseString] isEqualToString:@"locked"]) { // Telegram is locked!
-		NSLog(@"[TLGM] Error: Telegram app is locked, no info provided");
+		NSLog(@"Error: Telegram app is locked, no info provided");
+	} else if ([[threadIdentifier lowercaseString] isEqualToString:@"secret"]) { // Secret conversation
+		NSLog(@"Error: Secret conversation, cannot read info");
 	} else if ([threadIdentifier hasPrefix:@"-"]) { // group/bot -> unsupported
 		/*
 		Current state for group/bot profile pictures:
@@ -25,32 +25,52 @@
 		plus I miss at least one element for each technique I can think of.
 		- Database: I found nothing interesting in all local databases existing in Telegram folders.
 		*/
-		NSLog(@"[TLGM] Error: negative threadId (threadId = %@), group or bot -> unsupported", threadIdentifier);
+		NSLog(@"Error: negative threadId (threadId = %@), group or bot -> unsupported", threadIdentifier);
 	} else { // casual convo
+		NSString *firstName;
+		NSString *lastName;
+
 		NSString *convoFolder = [NSString stringWithFormat:@"%@/telegram-data/accounts-metadata/spotlight/p:%@", sharedFolder, threadIdentifier];
-		NSLog(@"[TLGM] Good path found! Path: %@", convoFolder);
-		if ([[NSFileManager defaultManager] fileExistsAtPath:[NSString stringWithFormat:@"%@/data.json", convoFolder]]) {
-			NSLog(@"[TLGM] Looking for High-res profile picture...");
-			NSData *jsonData = [NSData dataWithContentsOfFile:[NSString stringWithFormat:@"%@/data.json", convoFolder]];
+		NSLog(@"Good path found! Path: %@", convoFolder);
+
+		// HD Profile Picture
+		NSString *dataJsonPath = [convoFolder stringByAppendingString:@"/data.json"];
+		if ([[NSFileManager defaultManager] fileExistsAtPath:dataJsonPath]) {
+			NSLog(@"Looking for High-res profile picture...");
 			NSError *error = nil;
-			NSDictionary *parsedData = [NSJSONSerialization JSONObjectWithData:jsonData options:kNilOptions error:&error];
+			NSDictionary *parsedData = [NSJSONSerialization JSONObjectWithData:[NSData dataWithContentsOfFile:dataJsonPath] options:kNilOptions error:&error];
 			if (!error) {
-				NSString *imagePath = [NSString stringWithFormat:@"%@/%@", sharedFolder, parsedData[@"avatarSourcePath"]];
-				UIImage *image = [UIImage imageWithContentsOfFile:imagePath];
-				NSLog(@"[TLGM] High-res (%.fx%.f) profile picture found! Path: %@", image.size.width * image.scale, image.size.height * image.scale, imagePath);
+				if (parsedData[@"avatarSourcePath"]) {
+					NSString *imagePath = [NSString stringWithFormat:@"%@/%@", sharedFolder, parsedData[@"avatarSourcePath"]];
+					UIImage *image = [UIImage imageWithContentsOfFile:imagePath];
+					NSLog(@"High-res (%.fx%.f) profile picture found! Path: %@", image.size.width * image.scale, image.size.height * image.scale, imagePath);
 
-				return [NSClassFromString(@"DDNotificationContactPhotoPromiseOffer") offerInstantlyResolvingPromiseWithPhotoIdentifier:imagePath image:image];
+					return [NSClassFromString(@"DDNotificationContactPhotoPromiseOffer") offerInstantlyResolvingPromiseWithPhotoIdentifier:threadIdentifier image:image];
+				} else {
+					firstName = parsedData[@"firstName"];
+					lastName = parsedData[@"lastName"];
+				}
 			}
-			NSLog(@"[TLGM] An error occurred while fetching High-res profile picture (error: %@)", error);
+			NSLog(@"An error occurred while fetching High-res profile picture (error: %@)", error);
 		}
-		if ([[NSFileManager defaultManager] fileExistsAtPath:[NSString stringWithFormat:@"%@/avatar.png", convoFolder]]) {
-			NSString *imagePath = [NSString stringWithFormat:@"%@/avatar.png", convoFolder];
-			UIImage *image = [UIImage imageWithContentsOfFile:imagePath];
-			NSLog(@"[TLGM] Low-res (%.fx%.f) avatar only found? (This is a rare bad case). Path: %@", image.size.width * image.scale, image.size.height * image.scale, imagePath);
 
-			return [NSClassFromString(@"DDNotificationContactPhotoPromiseOffer") offerInstantlyResolvingPromiseWithPhotoIdentifier:imagePath image:image];
+		// SD Profile Picture
+		NSString *avatarPngPath = [convoFolder stringByAppendingString:@"/avatar.png"];
+		if ([[NSFileManager defaultManager] fileExistsAtPath:avatarPngPath]) {
+			UIImage *image = [UIImage imageWithContentsOfFile:avatarPngPath];
+			NSLog(@"Low-res (%.fx%.f) avatar only found? (This is a rare bad case). Path: %@", image.size.width * image.scale, image.size.height * image.scale, avatarPngPath);
+
+			return [NSClassFromString(@"DDNotificationContactPhotoPromiseOffer") offerInstantlyResolvingPromiseWithPhotoIdentifier:threadIdentifier image:image];
 		}
-		NSLog(@"[TLGM] No avatar for this conversation");
+
+		// Custom initials Profile Picture
+		if (firstName && firstName.length > 0) { // last name can be missing
+			UIImage *generatedImage = [TGSInitialsPictureGenerator generatePictureWithFirstLetter:[[firstName uppercaseString] characterAtIndex:0]
+																					 secondLetter:lastName && lastName.length > 0 ? [[lastName uppercaseString] characterAtIndex:0] : '\0'];
+			return [NSClassFromString(@"DDNotificationContactPhotoPromiseOffer") offerInstantlyResolvingPromiseWithPhotoIdentifier:threadIdentifier image:generatedImage];
+		}
+
+		NSLog(@"No avatar available for this conversation");
 	}
 
 	return nil;

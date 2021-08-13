@@ -1,13 +1,4 @@
-# gitignore for Theos
-
-*.deb
-_/
-theos/
-theos
-.theos
+.vscode/
+.theos/
 packages/
-./packages/
-obj/
-./obj/
-obj
 .DS_Store

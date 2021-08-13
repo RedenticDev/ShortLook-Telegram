@@ -1,0 +1,3 @@
+[submodule "ShortLook-API"]
+	path = ShortLook-API
+	url = https://github.com/dynastic/ShortLook-API

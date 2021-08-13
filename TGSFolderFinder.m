@@ -1,14 +1,12 @@
 // Credit: u/Mordred666
 // Source: https://reddit.com/r/jailbreakdevelopers/comments/5wb3tv/application_appgroup_path/
 
-#import "FolderFinder.h"
+#import "TGSFolderFinder.h"
 
-@implementation FolderFinder
+@implementation TGSFolderFinder
 
 + (NSString *)findSharedFolder:(NSString *)appName {
-	NSString *dir = @"/var/mobile/Containers/Shared/AppGroup/";
-	NSString *result = [self findFolder:appName folder:dir];
-	return result;
+	return [self findFolder:appName folder:@"/var/mobile/Containers/Shared/AppGroup/"];
 }
 
 + (NSString *)findFolder:(NSString *)appName folder:(NSString *)dir {
